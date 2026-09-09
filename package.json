@@ -1,0 +1,79 @@
+{
+  "name": "clipping-by-saim",
+  "version": "1.2.0",
+  "description": "Clipping by Saim — turn any YouTube link into AI-picked viral clips",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder --publish never",
+    "publish": "electron-builder --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9",
+    "ffmpeg-static": "^5.1.0",
+    "ffprobe-static": "^3.1.0",
+    "fluent-ffmpeg": "^2.1.2"
+  },
+  "devDependencies": {
+    "electron": "27.0.0",
+    "electron-builder": "24.6.4"
+  },
+  "build": {
+    "appId": "com.saim.clipping",
+    "productName": "Clipping by Saim",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Sam-agentic",
+        "repo": "Clipping-By-Saim"
+      }
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "**/*",
+      "!cache/**",
+      "!generated_videos/**",
+      "!data/**",
+      "!database/**",
+      "!library/**",
+      "!release/**",
+      "!supabase/**",
+      "!_analysis/**",
+      "!python/__pycache__/**",
+      "!*.log",
+      "!node_modules/.cache/**",
+      "!node_modules/ffprobe-static/bin/darwin/**",
+      "!node_modules/ffprobe-static/bin/linux/**",
+      "!node_modules/ffprobe-static/bin/win32/ia32/**"
+    ],
+    "asarUnpack": [
+      "node_modules/ffmpeg-static/**",
+      "node_modules/ffprobe-static/**",
+      "python/**"
+    ],
+    "win": {
+      "icon": "assets/logo.ico",
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "mac": {
+      "icon": "assets/logo.png",
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.video"
+    },
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Video"
+    }
+  }
+}

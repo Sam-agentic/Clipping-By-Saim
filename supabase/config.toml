@@ -1,0 +1,22 @@
+# Supabase CLI configuration for "Clipping by Saim" licensing backend.
+# Run `supabase start` for local dev, or `supabase functions deploy` to push.
+
+project_id = "clipping-by-saim"
+
+[functions.request-access]
+verify_jwt = false
+
+[functions.verify-license]
+verify_jwt = false
+
+[functions.admin-approve]
+verify_jwt = false
+
+[functions.admin-list-requests]
+verify_jwt = false
+
+[functions.admin-revoke]
+verify_jwt = false
+
+[functions.admin-list-customers]
+verify_jwt = false

@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self' file:; script-src 'self' 'unsafe-inline' file:; style-src 'self' 'unsafe-inline' file:; img-src 'self' file: data:; media-src 'self' file: data:; font-src 'self' file: data:; connect-src 'self' https:; object-src 'none'; base-uri 'none'; form-action 'none'" />
+  <title>Clipping by Saim</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- Fail loudly. A single script error used to leave this window looking fine
+       but completely dead: no button worked and nothing said why. These two
+       small scripts turn any such failure into a red bar at the bottom. -->
+  <div id="bootError" class="boot-error hidden"></div>
+  <script>
+    (function () {
+      window.__bootErrorShown = false;
+      window.__showBootError = function (text) {
+        var box = document.getElementById('bootError');
+        if (!box) return;
+        box.textContent = text;
+        box.classList.remove('hidden');
+        window.__bootErrorShown = true;
+      };
+      window.addEventListener('error', function (event) {
+        var file = event.filename ? String(event.filename).split(/[\\/]/).pop() : '';
+        var where = file ? ' (' + file + ' line ' + event.lineno + ')' : '';
+        window.__showBootError('Startup error: ' + (event.message || 'a script failed') + where);
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        var reason = event.reason;
+        window.__showBootError('Error: ' + ((reason && reason.message) || String(reason)));
+      });
+    })();
+  </script>
+
+  <div class="topbar">
+    <img src="assets/logo-32.png" alt="Clipping by Saim logo" class="app-logo" />
+    <h1>Clipping <span class="brand-by">by Saim</span></h1>
+    <nav class="tool-tabs" aria-label="Tools">
+      <button class="tool-tab active" data-tool="saim">&#9654; <span>Clipping</span></button>
+      <button class="tool-tab" data-tool="clips">&#9645; <span>Shorts</span></button>
+    </nav>
+    <div class="topbar-right">
+      <span id="licenseUser" class="license-user hidden"></span>
+      <button id="ownerAccessBtn" class="text-btn hidden">Manage access</button>
+      <button id="licenseSignOutBtn" class="text-btn hidden">Sign out</button>
+      <span id="systemInfo" class="sysinfo"></span>
+    </div>
+  </div>
+
+  <div id="cursorGlow" aria-hidden="true"></div>
+
+  <div id="licenseGate" class="license-gate hidden" role="dialog" aria-modal="true" aria-labelledby="licenseTitle">
+    <div class="license-card glass-card">
+      <div class="license-mark">✦</div>
+      <p class="eyebrow">CLIPPING BY SAIM · PROTECTED ACCESS</p>
+      <h2 id="licenseTitle">Welcome back</h2>
+      <p id="licenseMessage">Sign in with the email address approved by your administrator.</p>
+      <label>Email<input id="licenseEmail" type="email" autocomplete="email" placeholder="you@company.com" /></label>
+      <label>Password<input id="licensePassword" type="password" autocomplete="current-password" placeholder="Your password" /></label>
+      <button id="licenseSignInBtn" class="generate-btn">Secure sign in</button>
+      <button id="licenseRequestBtn" class="text-btn">Request access from the administrator</button>
+      <p class="license-note">Your license is verified securely and this device is registered to your approved account.</p>
+    </div>
+  </div>
+
+  <div id="ownerGate" class="license-gate hidden" role="dialog" aria-modal="true" aria-labelledby="ownerTitle">
+    <div class="license-card glass-card owner-card">
+      <div class="license-mark">⌁</div>
+      <p class="eyebrow">OWNER CONSOLE · CUSTOMER LICENSING</p>
+      <h2 id="ownerTitle">Approve access</h2>
+      <p id="ownerMessage">Approve an email to send its English invitation email.</p>
+      <label>Customer email<input id="ownerCustomerEmail" type="email" autocomplete="email" placeholder="customer@company.com" /></label>
+      <label>Device limit<input id="ownerDeviceLimit" type="number" min="1" max="10" value="2" /></label>
+      <button id="ownerApproveBtn" class="generate-btn">Approve and send invite</button>
+      <button id="ownerRefreshBtn" class="text-btn">Refresh dashboard</button>
+      <div class="owner-section">
+        <h3>Pending requests</h3>
+        <div id="ownerRequestsList" class="owner-list"></div>
+      </div>
+      <div class="owner-section">
+        <h3>Customers</h3>
+        <div id="ownerCustomersList" class="owner-list"></div>
+      </div>
+      <button id="ownerCloseBtn" class="text-btn">Close</button>
+      <p class="license-note">Only the owner account can approve, revoke or issue device access. The server enforces this rule.</p>
+    </div>
+  </div>
+
+  <div class="main-layout">
+    <div class="panel left-panel">
+      <div class="tool-heading">
+        <span id="toolTitle">Clipping</span>
+        <span class="tool-count">AI CLIP MAKER</span>
+      </div>
+      <div id="toolLibrary" class="tool-library"></div>
+
+      <div id="saimSection" class="section saim-section">
+        <h2>&#128293; Clipping by Saim</h2>
+        <p class="hint">Paste a YouTube link. The app downloads the video, finds the
+          strongest moments with AI and cuts them into ready-to-post clips. Working
+          files are deleted automatically after export, so nothing piles up on disk.</p>
+
+        <input id="saimUrl" type="text" class="saim-url" spellcheck="false"
+               placeholder="https://www.youtube.com/watch?v=..." />
+
+        <div class="saim-grid">
+          <label>Clips
+            <input id="saimClipCount" type="number" min="1" max="20" value="10" />
+          </label>
+          <label>Clip length
+            <select id="saimTargetLen">
+              <option value="20">about 20 sec</option>
+              <option value="30" selected>about 30 sec</option>
+              <option value="45">about 45 sec</option>
+              <option value="60">about 60 sec</option>
+            </select>
+          </label>
+          <label>Aspect ratio
+            <select id="saimAspect">
+              <option value="vertical" selected>9:16 Reels / Shorts</option>
+              <option value="square">1:1 Square</option>
+              <option value="wide">16:9 Wide</option>
+            </select>
+          </label>
+          <label>Quality
+            <select id="saimQuality">
+              <option value="720" selected>720p (fast)</option>
+              <option value="1080">1080p (slow)</option>
+            </select>
+          </label>
+          <label>Captions
+            <!-- Options are built by buildCaptionPicker() in renderer.js from
+                 the CAPTION_TEMPLATES table, so templates live in one place. -->
+            <select id="saimCaptionStyle"></select>
+          </label>
+          <label>Transcription
+            <select id="saimModelSize">
+              <option value="tiny" selected>Fast (tiny)</option>
+              <option value="base">Accurate (base)</option>
+            </select>
+          </label>
+          <label>Spoken language
+            <select id="saimLanguage">
+              <option value="auto" selected>Detect automatically</option>
+              <option value="en">English</option>
+              <option value="ur">Urdu</option>
+              <option value="hi">Hindi</option>
+              <option value="pa">Punjabi</option>
+              <option value="ar">Arabic</option>
+              <option value="fa">Persian</option>
+              <option value="bn">Bengali</option>
+              <option value="es">Spanish</option>
+              <option value="fr">French</option>
+              <option value="de">German</option>
+              <option value="pt">Portuguese</option>
+              <option value="ru">Russian</option>
+              <option value="tr">Turkish</option>
+              <option value="id">Indonesian</option>
+              <option value="ms">Malay</option>
+              <option value="zh">Chinese</option>
+              <option value="ja">Japanese</option>
+              <option value="ko">Korean</option>
+              <option value="it">Italian</option>
+              <option value="nl">Dutch</option>
+            </select>
+          </label>
+          <label>Framing
+            <select id="saimFraming">
+              <option value="crop" selected>Centre crop (fastest)</option>
+              <option value="blur">Blurred background, nothing cut off</option>
+              <option value="track">Follow the action (slowest)</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="caption-picker">
+          <div class="caption-picker-head">
+            <span>Caption templates</span>
+            <span class="hint-inline">Click one — it applies to every clip, and each
+              clip can still be changed on its own card.</span>
+          </div>
+          <div id="saimCaptionGallery" class="caption-gallery"></div>
+          <p class="hint">Templates marked with a coloured word light up each word as
+            it is spoken. The one-word templates put a single word on screen at a
+            time. If a template looks plainer than its preview, this computer does
+            not have that font and Windows substituted another one.</p>
+        </div>
+
+        <p class="hint">Seeing two sets of captions on a finished clip? The lower
+          one is ours; the other is already burned into the downloaded video (a lot
+          of highlight and podcast uploads ship that way). Pick
+          <strong>No captions</strong> above — or on any single clip below — and only
+          the original text remains. The <strong>at the top</strong> templates are the
+          other way out: they put our text where the burned-in text is not.</p>
+
+        <div class="saim-extras">
+          <div class="extras-head">Words, logo and pacing</div>
+
+          <div class="enhance-block">
+            <div class="extras-head">&#129302; AI Hook Generator</div>
+            <p class="hint">Paste the transcript (or let the app use the detected
+              transcript) and get viral hooks + CTAs in one click.</p>
+            <textarea id="saimTranscript" class="saim-transcript" rows="3"
+                      placeholder="Paste the transcript here to generate hooks…"></textarea>
+            <button id="saimGenHooksBtn" class="small-btn">&#129302; Generate hooks</button>
+            <div id="saimHooksList" class="hooks-list"></div>
+          </div>
+
+          <div class="enhance-block">
+            <div class="extras-head">&#127760; Caption language</div>
+            <label>CTA language
+              <select id="saimCtaLanguage">
+                <option value="en" selected>English</option>
+                <option value="ur">Urdu</option>
+                <option value="hi">Hindi</option>
+                <option value="ar">Arabic</option>
+                <option value="es">Spanish</option>
+                <option value="fr">French</option>
+                <option value="de">German</option>
+                <option value="pt">Portuguese</option>
+                <option value="tr">Turkish</option>
+                <option value="id">Indonesian</option>
+                <option value="zh">Chinese</option>
+                <option value="ja">Japanese</option>
+                <option value="ko">Korean</option>
+              </select>
+            </label>
+            <p class="hint">The headline/CTA text is translated into the language you
+              pick. The spoken-word captions stay in the original language.</p>
+          </div>
+
+          <div class="enhance-block">
+            <div class="extras-head">&#128279; Batch processing</div>
+            <p class="hint">Paste multiple YouTube links (one per line) and process
+              them one after another.</p>
+            <textarea id="saimBatchUrls" class="saim-transcript" rows="3"
+                      placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/watch?v=..."></textarea>
+            <div class="batch-actions">
+              <button id="saimBatchAddBtn" class="small-btn">&#10133; Add to queue</button>
+              <button id="saimBatchRunBtn" class="small-btn">&#9654; Run batch</button>
+              <button id="saimBatchClearBtn" class="small-btn">&#128465; Clear</button>
+            </div>
+            <div id="saimBatchList" class="batch-list"></div>
+          </div>
+
+          <div class="enhance-block">
+            <div class="extras-head">&#128279; Platform presets</div>
+            <label>Export target
+              <select id="saimPlatformPreset">
+                <option value="tiktok" selected>TikTok</option>
+                <option value="youtube_shorts">YouTube Shorts</option>
+                <option value="instagram_reels">Instagram Reels</option>
+              </select>
+            </label>
+            <p id="saimPlatformDesc" class="hint"></p>
+          </div>
+
+          <label class="toggle-row">
+            <input id="saimTranslate" type="checkbox" />
+            Always write the captions in English, whatever language is spoken
+          </label>
+          <label class="toggle-row">
+            <input id="saimTighten" type="checkbox" />
+            Cut the dead air out so the clip runs tighter
+          </label>
+          <label class="toggle-row saim-sub-toggle">
+            <input id="saimCutFillers" type="checkbox" checked />
+            &hellip; and drop filler words too (umm, aa, matlab, basically)
+          </label>
+          <label class="toggle-row">
+            <input id="saimWriteMeta" type="checkbox" />
+            Save a title, description and hashtags .txt beside every clip
+          </label>
+
+          <div class="saim-grid">
+            <label>Headline at the top
+              <input id="saimHook" type="text" maxlength="90" spellcheck="false"
+                     placeholder="Optional &mdash; e.g. WAIT FOR THE END" />
+            </label>
+            <label>Headline stays for
+              <input id="saimHookSeconds" type="number" min="0.5" max="10" step="0.5" value="2.5" />
+            </label>
+            <label>Caption colour
+              <input id="saimCapPrimary" type="color" value="#FFFFFF" />
+            </label>
+            <label>Spoken-word colour
+              <input id="saimCapHighlight" type="color" value="#FFE500" />
+            </label>
+          </div>
+          <label class="toggle-row">
+            <input id="saimUseColours" type="checkbox" />
+            Use those two colours instead of the template's own
+          </label>
+          <p class="hint">Leave that unticked and every template keeps the colours it
+            was designed with. The headline is separate from the captions &mdash; it sits
+            at the very top and disappears after the seconds you set.</p>
+
+          <div class="logo-row">
+            <button id="saimLogoBtn" class="upload-btn">&#127912; Choose a logo or watermark</button>
+            <button id="saimLogoClear" class="small-btn hidden">Remove</button>
+          </div>
+          <p id="saimLogoName" class="file-status">No logo chosen</p>
+          <div class="saim-grid">
+            <label>Logo size
+              <input id="saimLogoScale" type="range" min="5" max="50" value="18" />
+            </label>
+            <label>Logo fade
+              <input id="saimLogoOpacity" type="range" min="10" max="100" value="85" />
+            </label>
+          </div>
+          <p class="hint">The logo goes in the top-right corner of every clip. A PNG
+            with a see-through background looks best &mdash; a JPG brings its white box
+            with it.</p>
+        </div>
+
+        <button id="saimFindBtn" class="generate-btn">&#128269; Find viral clips</button>
+        <button id="saimCancelBtn" class="cancel-btn hidden">&#9632; Cancel</button>
+
+        <div id="saimProgressWrap" class="progress-wrap hidden">
+          <div id="saimProgressBar" class="progress-bar"></div>
+        </div>
+        <p id="saimVideoTitle" class="file-status"></p>
+        <p id="saimStatus" class="stage-detail"></p>
+      </div>
+      <div id="saimExportWrap" class="section hidden">
+        <h2>&#11014; Export</h2>
+        <button id="saimFolderBtn" class="upload-btn">&#128193; Choose export folder</button>
+        <p id="saimFolderName" class="file-status">No folder chosen yet</p>
+        <label class="toggle-row">
+          <input id="saimSubtitles" type="checkbox" />
+          Also copy a .srt subtitle file beside every clip
+        </label>
+        <p class="hint">Leave that off unless you plan to upload captions separately.
+          The captions are already burned into the video, so the .srt is only an extra
+          text file &mdash; those are the blank-looking files you saw next to the clips.</p>
+        <button id="saimExportBtn" class="generate-btn">&#11014; Export and clean up</button>
+        <p class="hint">If no folder is chosen yet, the folder picker opens first &mdash;
+          nothing is written or deleted until you pick one. Clips are copied into your
+          folder, then the temporary project on this computer is deleted automatically.</p>
+        <p class="hint">Rights: this tool does not make anything copyright-free. A clip
+          cut from someone else's upload still belongs to them, and commercial music
+          stays theirs too &mdash; cropping, filters and captions do not stop Content ID
+          from matching it. Use footage and music you own or that is licensed for reuse.</p>
+      </div>
+
+      <button id="saimDiscardBtn" class="cancel-btn hidden">&#128465; Delete temporary project</button>
+
+      <div id="progressLog" class="progress-log hidden"></div>
+      <div id="clipMakerSection" class="section hidden">
+        <h2>&#9645; Shorts from a local video</h2>
+        <p class="hint">Already have the video on this computer? Cut fixed-length
+          clips straight out of it, no download needed.</p>
+        <button id="clipVideoBtn" class="upload-btn">Choose a long video</button>
+        <p id="clipVideoName" class="file-status">No video selected</p>
+        <label>Platform</label>
+        <select id="clipPlatform">
+          <option value="youtube">YouTube Shorts &middot; 9:16</option>
+          <option value="tiktok">TikTok &middot; 9:16</option>
+          <option value="instagram">Instagram Reels &middot; 9:16</option>
+          <option value="facebook">Facebook Reels &middot; 9:16</option>
+          <option value="youtube-wide">YouTube &middot; 16:9</option>
+          <option value="square">Facebook / Instagram &middot; 1:1</option>
+        </select>
+        <label>Clip length</label>
+        <select id="clipLength">
+          <option value="10">10 seconds</option>
+          <option value="20">20 seconds</option>
+        </select>
+        <label>Number of clips</label>
+        <input id="clipCount" type="number" min="1" max="50" value="10" />
+        <label>Music</label>
+        <select id="clipMusicPolicy">
+          <option value="none">Keep the original audio only</option>
+          <option value="licensed">Add my own music</option>
+        </select>
+        <button id="clipMusicBtn" class="upload-btn">Choose a music file</button>
+        <p id="clipMusicName" class="file-status">No music selected</p>
+        <button id="makeClipsBtn" class="generate-btn" disabled>Make clips</button>
+        <p id="clipStatus" class="file-status"></p>
+        <div id="clipResults" class="overlay-list"></div>
+      </div>
+    </div>
+
+    <div class="panel center-panel">
+      <div class="editor-toolbar">
+        <button class="icon-btn" id="fitPreviewBtn" title="Fit the preview to the window">&#9723;</button>
+        <button class="icon-btn" id="fullscreenBtn" title="Fullscreen">&#9974;</button>
+        <span class="toolbar-divider"></span>
+        <span class="zoom-label" id="clipsSummary">No clips yet</span>
+      </div>
+      <div class="workspace-heading">Preview</div>
+      <div class="preview-box">
+        <video id="previewPlayer" controls></video>
+        <p id="previewPlaceholder">Your clips will play here</p>
+      </div>
+      <div class="playback-controls">
+        <button class="play-btn" id="playBtn" title="Play / pause">&#9654;</button>
+        <span id="timeDisplay">0:00 / 0:00</span>
+      </div>
+
+      <div id="saimClipsWrap" class="clips-dock hidden">
+        <div class="clips-dock-head">
+          <h2>Clips found</h2>
+          <div class="saim-bulk">
+            <button id="saimAllMusicBtn" class="small-btn">&#127925; One music for all</button>
+            <button id="saimSelectAllBtn" class="small-btn">Select all</button>
+            <label class="saim-duck">
+              <input id="saimMusicDuck" type="checkbox" checked />
+              Lower the music while someone is speaking
+            </label>
+          </div>
+        </div>
+        <p class="hint">Music can be an audio file <em>or</em> a song video &mdash; mp4,
+          mkv, webm and mov are all accepted, only their sound is used. Each clip keeps
+          its own track and its own volume slider.</p>
+        <div id="saimClipList" class="saim-clip-list"></div>
+        <button id="saimRenderBtn" class="generate-btn">&#127916; Make selected clips</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="statusbar">
+    <span id="statusText">Ready &mdash; paste a YouTube link to start</span>
+  </div>
+
+  <script src="renderer.js"></script>
+  <script>
+    // renderer.js sets __rendererReady on its last line. If it is missing, the
+    // script stopped early and none of the buttons are wired up.
+    (function () {
+      if (!window.__rendererReady && !window.__bootErrorShown) {
+        window.__showBootError(
+          'renderer.js stopped before it finished, so the buttons are not connected. '
+          + 'Open View → Toggle Developer Tools to see the exact line.'
+        );
+      }
+    })();
+  </script>
+</body>
+</html>

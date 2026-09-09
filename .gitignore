@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build output
+release/
+dist/
+out/
+
+# Runtime data / cache (never commit user data or license config)
+data/
+cache/
+generated_videos/
+database/
+library/
+python/__pycache__/
+!python/requirements.txt
+
+# Licensing config — contains secrets, must stay private
+licensing.config.json
+
+# Supabase local temp
+supabase/.temp/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Analysis helpers
+_analysis/
+
+# OS / editor
+Thumbs.db
+.DS_Store
+
+# Env
+.env
+.env.*

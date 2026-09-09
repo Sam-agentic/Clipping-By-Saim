@@ -1,0 +1,5 @@
+{
+  "enforcement": "required",
+  "supabaseUrl": "https://YOUR-PROJECT.supabase.co",
+  "supabaseAnonKey": "YOUR-PUBLIC-ANON-KEY"
+}
