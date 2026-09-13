@@ -1,9 +1,6 @@
 /**
- * preload.js — the only bridge between the renderer and Node.
- *
- * contextIsolation stays on and nodeIntegration stays off, so the renderer gets
- * this explicit allow-list and nothing else. Each method is a thin wrapper over
- * one ipcMain.handle channel in main.js.
+ * The renderer's only route into Node. With contextIsolation on and
+ * nodeIntegration off, this explicit allow-list is all the renderer gets.
  */
 
 const { contextBridge, ipcRenderer } = require('electron');
@@ -44,11 +41,7 @@ contextBridge.exposeInMainWorld('api', {
   generateVideo: (payload) => ipcRenderer.invoke('generate-video', payload),
   cancelGenerate: () => ipcRenderer.invoke('cancel-generate'),
 
-  /**
-   * Subscribe to progress. Returns an unsubscribe function — without it every
-   * hot reload would stack another listener and the same update would be
-   * applied several times.
-   */
+  /** Subscribe to progress; the returned function removes the listener. */
   onProgress: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on(PROGRESS_CHANNEL, listener);
@@ -82,7 +75,7 @@ contextBridge.exposeInMainWorld('api', {
   licenseStartTrial: (payload) => ipcRenderer.invoke('license-start-trial', payload),
   licenseTrialStatus: () => ipcRenderer.invoke('license-trial-status'),
 
-  // enhancements (v1.2) — growth features
+  // growth features
   enhanceGenerateHooks: (payload) => ipcRenderer.invoke('enhance-generate-hooks', payload),
   enhanceLanguages: () => ipcRenderer.invoke('enhance-languages'),
   enhanceTranslateCta: (payload) => ipcRenderer.invoke('enhance-translate-cta', payload),

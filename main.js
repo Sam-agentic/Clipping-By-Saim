@@ -1176,16 +1176,16 @@ ipcMain.handle('cache-stats', () => transcriptCache.stats());
 
 ipcMain.handle('clear-cache', () => transcriptCache.clear());
 
-/* ------------------------------------------------------- enhancements (v1.2) */
+/* ------------------------------------------------------- growth features */
 
-// 1. Auto-caption AI — generate hooks/CTAs from a transcript
+// Auto-caption AI — hooks/CTAs from a transcript
 ipcMain.handle('enhance-generate-hooks', (_event, payload = {}) => {
   const transcript = String(payload.transcript || '');
   const count = clampInt(payload.count, 1, 5, 3);
   return { success: true, hooks: enhancements.generateHooks(transcript, count) };
 });
 
-// 2. Multi-language — caption translation presets
+// Multi-language — caption presets
 ipcMain.handle('enhance-languages', () => ({
   success: true,
   languages: enhancements.getLanguageLabels()
@@ -1197,7 +1197,7 @@ ipcMain.handle('enhance-translate-cta', (_event, payload = {}) => {
   return { success: true, text: enhancements.translateCta(key, language) };
 });
 
-// 3. Batch processing — queue multiple YouTube links
+// Batch queue — multiple YouTube links
 const batchQueue = new enhancements.BatchQueue();
 
 ipcMain.handle('enhance-batch-add', (_event, payload = {}) => {
@@ -1247,7 +1247,7 @@ ipcMain.handle('enhance-batch-run', async () => {
   return result;
 });
 
-// 4. Analytics dashboard — owner usage stats
+// Analytics — owner usage stats
 ipcMain.handle('enhance-analytics', (_event, payload = {}) => {
   try {
     const days = clampInt(payload.days, 1, 365, 30);
@@ -1273,7 +1273,7 @@ ipcMain.handle('enhance-track-event', (_event, payload = {}) => {
   }
 });
 
-// 5. Auto-posting — platform export presets
+// Auto-posting presets — platform export templates
 ipcMain.handle('enhance-platforms', () => ({
   success: true,
   platforms: enhancements.getPlatformPresets()
@@ -1284,12 +1284,10 @@ ipcMain.handle('enhance-platform-preset', (_event, key) => ({
   preset: enhancements.getPlatformPreset(String(key || ''))
 }));
 
-// 6. Trial/demo mode — watermark + clip limit for unlicensed users
+// Trial mode — watermark + clip limit for unlicensed users
 ipcMain.handle('enhance-trial-status', async (_event, license) => {
-  // The renderer hands back the verdict it already received from
-  // license-status / sign-in / register so the banner always matches the
-  // same answer that unlocked (or gated) the app. Only fall back to a fresh
-  // verification when no verdict was supplied (e.g. after starting a trial).
+  // Use the verdict the renderer already holds so the banner matches the
+  // answer that unlocked (or gated) the app; re-verify only if none was given.
   const status = (license && (typeof license.allowed === 'boolean' || license.trial !== undefined))
     ? license
     : await licenseService.verify(DATA_DIR);
@@ -1310,7 +1308,7 @@ ipcMain.handle('enhance-track-clip-render', (_event, payload = {}) => {
       count: clampInt(payload.count, 1, 100, 1),
       url: payload.url
     });
-  } catch (_) { /* analytics are best-effort */ }
+  } catch (_) { /* analytics are optional */ }
   return { success: true };
 });
 
@@ -1321,6 +1319,6 @@ ipcMain.handle('enhance-track-export', (_event, payload = {}) => {
       count: clampInt(payload.count, 1, 100, 1),
       platform: payload.platform
     });
-  } catch (_) { /* analytics are best-effort */ }
+  } catch (_) { /* analytics are optional */ }
   return { success: true };
 });

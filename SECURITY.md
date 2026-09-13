@@ -43,8 +43,8 @@ uses a proper server-verified model. No critical vulnerabilities found.
   all project-dir operations
 
 ### Licensing backend (Supabase)
-- **RLS enabled** on all 3 tables (`profiles`, `access_requests`,
-  `licensed_devices`) — no direct client access
+- **RLS enabled** on all 4 tables (`profiles`, `access_requests`,
+  `licensed_devices`, `free_trials`) — no direct client access
 - **Service-role key** only lives as an Edge Function secret — never in the app
 - **JWT validated server-side** in `verify-license` via `auth.getUser(jwt)`
 - **Device limits enforced** — device hash count checked against `device_limit`
@@ -112,3 +112,4 @@ uses a proper server-verified model. No critical vulnerabilities found.
 - [x] YouTube download capped at 1 GB
 - [x] Atomic file writes
 - [x] License enforced on all expensive operations
+- [x] Free trial is one-per-device, enforced server-side (`free_trials`)

@@ -1,18 +1,12 @@
 /**
- * enhancements.js — Growth features for Clipping by Saim
- *
- * 1. Auto-caption AI      — rule-based hook/CTA generator from transcript
- * 2. Multi-language       — caption translation presets
- * 3. Batch processing     — queue multiple YouTube links
- * 4. Analytics dashboard  — owner usage stats (local + Supabase)
- * 5. Auto-posting         — platform export presets (TikTok/Shorts/Reels)
- * 6. Trial/demo mode      — watermark + clip limit for unlicensed users
+ * Growth features: hook/CTA generator, caption translations, batch queue,
+ * analytics, platform export presets, and trial-mode watermark/limits.
  */
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-/* ------------------------------------------------------------------ 1. Auto-caption AI */
+/* ------------------------------------------------------------------ auto-caption */
 
 /**
  * Generate viral hooks/CTAs from a transcript.
@@ -79,7 +73,7 @@ function generateHooks(transcript, count = 3) {
   return hooks;
 }
 
-/* ------------------------------------------------------------------ 2. Multi-language */
+/* ------------------------------------------------------------------ multi-language */
 
 const LANGUAGE_LABELS = {
   auto: 'Auto-detect',
@@ -222,7 +216,7 @@ function getLanguageLabels() {
   return LANGUAGE_LABELS;
 }
 
-/* ------------------------------------------------------------------ 3. Batch processing */
+/* ------------------------------------------------------------------ batch processing */
 
 class BatchQueue {
   constructor() {
@@ -311,7 +305,7 @@ class BatchQueue {
   }
 }
 
-/* ------------------------------------------------------------------ 4. Analytics dashboard */
+/* ------------------------------------------------------------------ analytics */
 
 const ANALYTICS_FILE = 'analytics.json';
 
@@ -375,7 +369,7 @@ function getAnalytics(dataDir, days = 30) {
   };
 }
 
-/* ------------------------------------------------------------------ 5. Auto-posting presets */
+/* ------------------------------------------------------------------ platform presets */
 
 const PLATFORM_PRESETS = {
   tiktok: {
@@ -415,7 +409,7 @@ function getPlatformPreset(key) {
   return PLATFORM_PRESETS[key] || PLATFORM_PRESETS.tiktok;
 }
 
-/* ------------------------------------------------------------------ 6. Trial/demo mode */
+/* ------------------------------------------------------------------ trial mode */
 
 const TRIAL_CONFIG = {
   enabled: true,
@@ -443,9 +437,8 @@ function trialWatermarkFont() {
 }
 
 function isTrialMode(licenseStatus) {
-  // A user is on trial when: licensing is not configured, their license is
-  // not allowed, OR the verify() call explicitly flagged an active trial
-  // (trial mode now returns allowed:true so the app unlocks but is limited).
+  // Trial: no license configured, a license that was denied, or a verdict that
+  // explicitly flagged an active trial (allowed:true with limits).
   return !licenseStatus || !licenseStatus.allowed || licenseStatus.trial === true;
 }
 
@@ -477,20 +470,14 @@ function applyWatermark(ffmpegArgs, position = 'bottom-right') {
 }
 
 module.exports = {
-  // 1. Auto-caption AI
   generateHooks,
-  // 2. Multi-language
   translateCta,
   getLanguageLabels,
-  // 3. Batch processing
   BatchQueue,
-  // 4. Analytics
   trackEvent,
   getAnalytics,
-  // 5. Auto-posting
   getPlatformPresets,
   getPlatformPreset,
-  // 6. Trial/demo mode
   isTrialMode,
   getTrialConfig,
   applyWatermark

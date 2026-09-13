@@ -1,36 +1,19 @@
 /**
  * renderer.js — Clipping by Saim
  *
- * One job only: a YouTube link goes in, the AI picks the strongest moments,
- * the user gives each clip its own background music and look, the clips are
- * exported to a folder of their choice and the temporary project is deleted.
- *
- * This is a flat script (no modules, no bundler), so every el(id) used here has
- * to exist in index.html — one missing id throws while loading and silently
- * kills every statement below it.
+ * Flat script, no modules or bundler, so every el(id) must exist in
+ * index.html — a missing id throws and kills everything below it.
  */
 
 const el = (id) => document.getElementById(id);
 
 /**
- * The preload bridge.
- *
- * This must NOT be called `api`. preload.js publishes it with
- * contextBridge.exposeInMainWorld('api', …), which defines `api` as a
- * non-configurable property of window — so a top-level `const api = …` in this
- * classic script is an instant SyntaxError ("Identifier 'api' has already been
- * declared") and *nothing* in the file runs. That is exactly what made every
- * button dead while the window still looked perfectly normal.
+ * The preload bridge. Never name this `api`: preload.js already defines that
+ * name on window, so a `const api` here is a SyntaxError that kills the file.
  */
 const bridge = window.api || {};
 
-/**
- * Attach a listener without betting the whole script on one id.
- *
- * This file is a flat script, so `el('typo').addEventListener(...)` used to
- * throw and silently kill every line below it — the window looked fine and no
- * button worked. Now a missing id costs that one button and nothing else.
- */
+/** Attach a listener; a missing id costs that one button, not the script. */
 function on(id, event, handler) {
   const node = el(id);
   if (!node) {
@@ -263,7 +246,7 @@ function unlockLicense(status) {
   const user = el('licenseUser');
   if (user) {
     if (status && status.trial) {
-      // Trial mode: show a clear "Free Trial" label instead of an email
+      // No email on a trial session — show the trial label instead.
       user.textContent = '🎯 Free Trial';
       user.classList.remove('hidden');
       toggleHidden('licenseSignOutBtn', false);
@@ -271,11 +254,9 @@ function unlockLicense(status) {
       user.textContent = status.email;
       user.classList.remove('hidden');
       toggleHidden('licenseSignOutBtn', false);
-      // This only controls visibility. The server independently checks the
-      // profile role, so changing the UI can never grant owner permissions.
+      // UI visibility only; the server still enforces who the owner is.
       if (status.email.toLowerCase() === 'saimabdullah310@gmail.com') {
         toggleHidden('ownerAccessBtn', false);
-        // Auto-load pending requests count so the owner sees it immediately
         refreshOwnerRequestCount();
       }
     }
@@ -287,25 +268,21 @@ async function checkLicense() {
   const status = await bridge.licenseStatus().catch(() => null);
   if (status && status.allowed) {
     unlockLicense(status);
-    // Use the verdict we already hold instead of re-verifying. The old flow
-    // fired a second concurrent server call at start-up; with an expired
-    // saved session both calls raced to refresh the same single-use Supabase
-    // token, the loser fell back to "trial mode", and the trial banner ended
-    // up painted over a real approved license.
+    // Use the verdict we already hold. A second start-up check used to race
+    // the refresh of a single-use token and could end up painting a trial
+    // banner over a real approved license.
     await checkTrialStatus(status);
   } else if (status && status.required) {
-    // First-time users have no saved session → default to "Create account"
-    // (email + password + confirm password). Returning users with an invalid
-    // session default to the regular sign-in form.
+    // Fresh users get the "Create account" tab; returning users with an
+    // invalid saved session default to the sign-in form.
     let hasSavedSession = false;
     try {
       const sessionInfo = await bridge.licenseHasSession();
       hasSavedSession = Boolean(sessionInfo && sessionInfo.hasSession);
-    } catch (_) { /* best-effort */ }
+    } catch (_) { /* ignore */ }
     if (!hasSavedSession && el('licenseTabRegister')) {
       el('licenseTabRegister').click();
-      // Show the overlay too: without this a first-time user never saw a
-      // login/register screen and the app opened straight into the main UI.
+      // Show the gate itself, not just the tab switch.
       showLicenseGate(status);
       setLicenseMessage(status.reason || 'Create your account or request access to start.');
     } else {
@@ -313,8 +290,7 @@ async function checkLicense() {
     }
     await checkTrialStatus(status);
   } else {
-    // No usable verdict (IPC error / malformed reply): fail closed rather
-    // than open the main UI with no access control at all.
+    // No usable verdict from the main process — do not open the app unlocked.
     showLicenseGate(status);
     await checkTrialStatus(status);
   }
@@ -330,10 +306,8 @@ on('licenseSignInBtn', 'click', async () => {
   el('licenseSignInBtn').disabled = false;
   if (result && result.allowed) {
     unlockLicense(result);
-    // The trial-mode banner is computed at start-up while the user is still
-    // signed out, so it would keep showing until the app restarts. Re-check it
-    // now that the license is verified so the "Trial mode — 3 clips max" message
-    // disappears as soon as a valid owner/customer signs in.
+    // Re-check the trial banner now that access is granted — the start-up
+    // verdict was computed while the user was still signed out.
     await checkTrialStatus(result);
     return;
   }
@@ -1436,9 +1410,9 @@ on('makeClipsBtn', 'click', async () => {
     el('clipResults').appendChild(row);
   });
 });
-/* ------------------------------------------------------- enhancements (v1.2) */
+/* ------------------------------------------------------- growth features */
 
-// 1. Auto-caption AI — generate hooks/CTAs from a transcript
+// Auto-caption AI — hooks/CTAs from a transcript
 on('saimGenHooksBtn', 'click', async () => {
   const transcript = el('saimTranscript') ? el('saimTranscript').value : '';
   if (!transcript.trim()) {
@@ -1475,7 +1449,7 @@ on('saimGenHooksBtn', 'click', async () => {
   setStatus('3 hooks generated — click "Use" to put one in the headline box.');
 });
 
-// 2. Multi-language — CTA translation
+// Multi-language — CTA translation
 on('saimCtaLanguage', 'change', async () => {
   const language = el('saimCtaLanguage').value;
   const result = await bridge.enhanceTranslateCta({ key: 'follow', language });
@@ -1484,7 +1458,7 @@ on('saimCtaLanguage', 'change', async () => {
   }
 });
 
-// 3. Batch processing — queue multiple YouTube links
+// Batch queue — multiple YouTube links
 const batchState = { items: [] };
 
 function renderBatchList() {
@@ -1557,7 +1531,7 @@ on('saimBatchClearBtn', 'click', async () => {
   setStatus('Batch queue cleared.');
 });
 
-// 4. Analytics dashboard — owner usage stats
+// Analytics — owner usage stats
 async function showAnalytics() {
   const result = await bridge.enhanceAnalytics({ days: 30 });
   if (!result || !result.success) return;
@@ -1573,7 +1547,7 @@ async function showAnalytics() {
   setStatus(lines.join(' · '));
 }
 
-// 5. Auto-posting — platform presets
+// Platform presets
 on('saimPlatformPreset', 'change', async () => {
   const key = el('saimPlatformPreset').value;
   const result = await bridge.enhancePlatformPreset(key);
@@ -1590,20 +1564,16 @@ on('saimPlatformPreset', 'change', async () => {
   }
 });
 
-// 6. Trial/demo mode — watermark + clip limit
+// Trial mode — watermark + clip limit
 async function checkTrialStatus(license) {
-  // The caller (checkLicense, sign-in, register) already has a license
-  // verdict; hand it over so we do not fire a second server verification
-  // that can disagree with the one that just unlocked (or gated) the app.
+  // Use the verdict the caller already holds; never run a second server check.
   const result = await bridge.enhanceTrialStatus(license);
   if (!result || !result.success) return;
   if (result.trial) {
     const config = result.config || {};
     setStatus(`Trial mode — ${config.maxClips} clips total, watermark burned into every clip. Get a license to remove it.`);
   } else {
-    // A verified license means the user is no longer on trial. Clear any
-    // lingering trial banner left over from start-up / a previous sign-in,
-    // otherwise it would keep claiming a 3-clip limit that no longer applies.
+    // Verified license — drop the trial banner left over from start-up.
     setStatus('Ready — license verified.');
   }
 }

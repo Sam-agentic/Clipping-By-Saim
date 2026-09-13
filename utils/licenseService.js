@@ -1,9 +1,7 @@
 /**
- * Server-verified access for the desktop application.
- *
- * The Supabase anonymous key is intentionally not a secret; Row Level Security
- * and the Edge Functions are the security boundary.  The service-role key must
- * only ever live in an Edge Function, never in this Electron bundle.
+ * Server-verified access. The Supabase anon key is public by design — Row Level
+ * Security and the Edge Functions are the real boundary. The service-role key
+ * only ever lives inside an Edge Function, never in this Electron bundle.
  */
 const crypto = require('crypto');
 const fs = require('fs');
@@ -28,8 +26,7 @@ function tokenFile(dataDir) { return path.join(dataDir, 'license.session'); }
 function trialFile(dataDir) { return path.join(dataDir, 'license.trial'); }
 
 function deviceId() {
-  // A hash, rather than a raw hardware identifier: the licensing server needs
-  // a stable device key but does not need to receive a customer's machine name.
+  // Hash the machine identity — the server gets a stable key, not raw details.
   const raw = [os.hostname(), os.platform(), os.arch(), os.userInfo().username].join('|');
   return crypto.createHash('sha256').update(raw).digest('hex');
 }
@@ -64,7 +61,7 @@ function hasSession(dataDir) {
   return Boolean(session && session.access_token);
 }
 
-/** Check if the user is currently in trial mode (valid until the server window). */
+/** Current trial state from the local trial file, or { active: false }. */
 function getTrialStatus(dataDir) {
   try {
     const raw = fs.readFileSync(trialFile(dataDir), 'utf8');
@@ -102,11 +99,10 @@ function saveTrialFile(dataDir, trial) {
 }
 
 /**
- * Start a free trial.  When licensing is configured the claim is recorded on
- * the server (one trial per device, forever), so deleting local files or
- * changing the system clock cannot reset the window.  When the server is not
- * reachable (offline) a local-only trial is kept so the app still works, but
- * the watermark + 3-clip limit still apply in-app.
+ * Start a free trial. With licensing configured the claim is recorded
+ * server-side (one per device), so deleting local files or moving the clock
+ * cannot reset it. Offline, a local-only trial keeps the app usable, with the
+ * watermark and clip limit still applied in-app.
  */
 async function startTrial(dataDir, email, appVersion) {
   const cleanEmail = String(email || '').trim().toLowerCase();
@@ -145,7 +141,7 @@ async function startTrial(dataDir, email, appVersion) {
     });
     serverVerified = true;
   } else {
-    // Development build without licensing config — plain local trial.
+    // No licensing config — plain local trial.
     saveTrialFile(dataDir, { startedAt: new Date().toISOString(), email: cleanEmail });
   }
 
@@ -161,7 +157,7 @@ function clearTrial(dataDir) {
 
 function trialUsageFile(dataDir) { return path.join(dataDir, 'trial.usage'); }
 
-/** Clips already rendered during this trial (not resetable by the user). */
+/** Clips already rendered during the current trial. */
 function trialRenderCount(dataDir) {
   try { return Number(JSON.parse(fs.readFileSync(trialUsageFile(dataDir), 'utf8')).renderedCount) || 0; }
   catch (_) { return 0; }
@@ -172,17 +168,14 @@ function recordTrialRenders(dataDir, count) {
   try {
     const used = trialRenderCount(dataDir) + (Number(count) || 0);
     fs.writeFileSync(trialUsageFile(dataDir), JSON.stringify({ renderedCount: used }), { mode: 0o600 });
-  } catch (_) { /* best-effort */ }
+  } catch (_) { /* ignore */ }
 }
 
 function resetTrialUsage(dataDir) {
   try { fs.unlinkSync(trialUsageFile(dataDir)); } catch (_) { /* already absent */ }
 }
 
-/**
- * Attempt to refresh an expired Supabase access_token using the stored
- * refresh_token.  Returns the updated session or null on failure.
- */
+/** Reuse the stored refresh_token to refresh an expired session. */
 async function refreshSession(dataDir) {
   const session = loadSession(dataDir);
   if (!session || !session.refresh_token) return null;
@@ -235,17 +228,16 @@ async function signIn(dataDir, email, password) {
   const session = await response.json().catch(() => ({}));
   if (!response.ok || !session.access_token) return { success: false, error: session.error_description || session.msg || 'Sign-in failed.' };
   saveSession(dataDir, session);
-  // Clear trial since the user now has a real license
+  // A real license supersedes any trial.
   clearTrial(dataDir);
   return verify(dataDir);
 }
 
 /**
- * Register a new account (first-time sign-up with email + password +
- * confirm password).  Because the owner controls account creation on the
- * server, registration always lands in the owner's approval queue — either the
- * sign-up went through (profile is 'pending' until approval) or sign-ups are
- * closed and the email is submitted as an access request instead.
+ * Register with email + password + confirmation. Owner-controlled sign-up
+ * means every registration lands in the approval queue: either the account is
+ * created as 'pending', or sign-ups are closed and the email is queued as an
+ * access request for the owner to invite.
  */
 async function register(dataDir, email, password, confirmPassword, appVersion) {
   if (!enabled()) return { success: false, error: 'Licensing has not been configured for this build.' };
@@ -258,7 +250,7 @@ async function register(dataDir, email, password, confirmPassword, appVersion) {
   if (cleanPassword !== cleanConfirm) return { success: false, error: 'Passwords do not match.' };
 
   const c = config();
-  // Sign up via Supabase Auth — RLS + the trigger creates a 'pending' profile.
+  // Supabase Auth creates the account; the trigger starts it as 'pending'.
   const response = await fetch(`${String(c.supabaseUrl).replace(/\/$/, '')}/auth/v1/signup`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: c.supabaseAnonKey },
@@ -266,10 +258,9 @@ async function register(dataDir, email, password, confirmPassword, appVersion) {
   });
   const result = await response.json().catch(() => ({}));
 
-  // Public sign-up is switched off on the server (403 / "signups not allowed").
-  // Route the email into the access-request queue so the owner can invite it.
+  // Public sign-up is disabled server-side — queue the email so the owner can invite it.
   if (!response.ok && (response.status === 403 || /signup|invite|closed|disabled/i.test(String(result.error_description || result.msg || result.error || '')))) {
-    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* best-effort */ }
+    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* ignore */ }
     return {
       success: false,
       requested: true,
@@ -280,17 +271,17 @@ async function register(dataDir, email, password, confirmPassword, appVersion) {
   if (result.access_token) {
     saveSession(dataDir, result);
     clearTrial(dataDir);
-    // Keep the owner approval queue in sync so pending users show up.
-    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* best-effort */ }
+    // Queue an access request so the account shows up for approval.
+    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* ignore */ }
     return verify(dataDir);
   }
   if (response.ok && result.id) {
-    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* best-effort */ }
+    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* ignore */ }
     return { success: true, needsConfirmation: true, message: 'Account created. Please confirm your email, then sign in once the owner approves your account.' };
   }
   if (result.msg && /already/i.test(String(result.msg))) {
-    // The account exists but is almost certainly still 'pending' approval.
-    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* best-effort */ }
+    // Account already exists but is presumably still pending approval.
+    try { await requestAccess(cleanEmail, appVersion); } catch (_) { /* ignore */ }
     return { success: false, error: 'This email is already registered and waiting for approval. We nudged the owner again — try signing in once it is approved.' };
   }
   return { success: false, error: result.error_description || result.msg || result.error || 'Registration failed. Make sure you have been invited by the owner.' };

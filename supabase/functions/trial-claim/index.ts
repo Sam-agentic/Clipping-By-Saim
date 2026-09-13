@@ -7,10 +7,10 @@ const TRIAL_DAYS = 7;
  * POST /functions/v1/trial-claim
  * { device_hash, email?, app_version? }
  *
- * Server-side, one-trial-per-device enforcement.  The first claim creates a
- * row and returns expires_at; a re-claim inside the window is idempotent
- * (so offline retries work); a claim after the window is denied, which means
- * deleting local trial files or changing the system clock cannot reset it.
+ * One trial per device, enforced server-side: a fresh claim stores the expiry,
+ * a re-claim inside the window is idempotent (offline retries keep the same
+ * window), and a claim after the window is denied — local deletion or clock
+ * changes cannot reset it.
  */
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: cors });
@@ -38,8 +38,7 @@ Deno.serve(async (request) => {
     if (existing) {
       const expiresAt = new Date(existing.expires_at).getTime();
       if (expiresAt > nowMs) {
-        // Trial still live on the server → idempotent success so a
-        // re-claim (after local files were deleted) restores the SAME window.
+        // Window still open — return the same expiry so a re-claim restores it.
         return Response.json({
           success: true, allowed: true, already: true,
           started_at: existing.claimed_at,
@@ -55,7 +54,7 @@ Deno.serve(async (request) => {
       }, { headers: cors });
     }
 
-    // Fresh claim → store the expiry server-side.
+    // Fresh claim — store the expiry server-side.
     const expiresAt = new Date(nowMs + TRIAL_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const { data: inserted, error: insertError } = await admin
       .from('free_trials')
@@ -71,8 +70,7 @@ Deno.serve(async (request) => {
       email: inserted.email,
     }, { headers: cors });
   } catch (error) {
-    // PostgrestError and friends can arrive as plain objects; always return a
-    // readable message instead of "[object Object]".
+    // Errors can arrive as plain objects; flatten them to a usable message.
     const message =
       error instanceof Error
         ? error.message
