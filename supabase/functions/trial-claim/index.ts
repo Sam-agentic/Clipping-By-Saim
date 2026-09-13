@@ -71,7 +71,15 @@ Deno.serve(async (request) => {
       email: inserted.email,
     }, { headers: cors });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return Response.json({ error: message }, { status: 400, headers: cors });
+    // PostgrestError and friends can arrive as plain objects; always return a
+    // readable message instead of "[object Object]".
+    const message =
+      error instanceof Error
+        ? error.message
+        : typeof error === 'object' && error !== null && 'message' in error
+          ? String((error as { message?: unknown }).message ?? '')
+          : JSON.stringify(error);
+    const text = message || JSON.stringify(error);
+    return Response.json({ error: text }, { status: 400, headers: cors });
   }
 });
