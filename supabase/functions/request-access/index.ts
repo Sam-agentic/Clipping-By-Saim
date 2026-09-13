@@ -8,7 +8,12 @@ Deno.serve(async (request) => {
     const clean = String(email || '').trim().toLowerCase();
     if (!/^\S+@\S+\.\S+$/.test(clean)) throw new Error('A valid email is required.');
     const admin = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!);
-    const { error } = await admin.from('access_requests').upsert({ email: clean, app_version: String(appVersion || '') }, { onConflict: 'email' });
+    // Upsert resets approved_at so a re-request appears in the pending queue
+    // again even if this email was approved before.
+    const { error } = await admin.from('access_requests').upsert(
+      { email: clean, app_version: String(appVersion || ''), approved_at: null },
+      { onConflict: 'email' }
+    );
     if (error) throw error;
     return Response.json({ success: true, message: 'Request received.' }, { headers: cors });
   } catch (error) { const message = error instanceof Error ? error.message : String(error); return Response.json({ error: message }, { status: 400, headers: cors }); }

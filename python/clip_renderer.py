@@ -992,6 +992,51 @@ def tighten_chains(segments, clip_start, speech_label):
     return chains
 
 
+# Trial watermark — burned into every exported frame for unlicensed users so a
+# watermark cannot be skipped or removed after the fact.  Only applied when the
+# config explicitly asks for it (the main process sets trialWatermark), so
+# licensed users and development builds see no change.
+WATERMARK_FONT_CANDIDATES = (
+    r"C:\Windows\Fonts\arialbd.ttf",
+    r"C:\Windows\Fonts\arial.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+    "/System/Library/Fonts/Arial.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+    "/usr/share/fonts/TTF/DejaVuSans-Bold.ttf",
+)
+
+
+def _pick_drawtext_font():
+    for candidate in WATERMARK_FONT_CANDIDATES:
+        if os.path.isfile(candidate):
+            return candidate
+    return ""
+
+
+def _escape_drawtext(value):
+    # Inside drawtext's single-quoted text, escape the characters FFmpeg uses
+    # as separators/quote markers so any video title survives verbatim.
+    return (str(value).replace("\\", "\\\\")
+            .replace("'", "\\'")
+            .replace(":", "\\:")
+            .replace(",", "\\,"))
+
+
+def watermark_chain(text, ffmpeg_path):
+    """Return a drawtext filter spec, or None when drawtext isn't available."""
+    if not has_filter(ffmpeg_path, "drawtext"):
+        progress.log("trial watermark skipped: drawtext filter is not available")
+        return None
+    parts = ["text='%s'" % _escape_drawtext(text)]
+    fontfile = _pick_drawtext_font()
+    parts.append("fontfile='%s'" % _escape_drawtext(fontfile) if fontfile else "font=Arial")
+    parts.append("fontsize=h*0.12")          # matches TRIAL_CONFIG.watermarkScale
+    parts.append("fontcolor=white@0.35")     # matches TRIAL_CONFIG.watermarkOpacity
+    parts.append("x=(w-text_w-20)")
+    parts.append("y=(h-text_h-20)")
+    return "drawtext=" + ":".join(parts)
+
+
 def build_args(source, out_path, plan, opts):
     """Assemble one FFmpeg argv. `opts` says which features are still enabled."""
     duration = plan["duration"]              # window taken out of the source
@@ -1050,6 +1095,14 @@ def build_args(source, out_path, plan, opts):
     else:
         parts.append("format=yuv420p")
         chains.append("[fr]%s[v]" % ",".join(parts))
+
+    # Trial watermark: re-route the finished [v] through one drawtext stage so
+    # the text is literally part of every frame (not removable).
+    if opts.get("watermark") and plan.get("watermark_text"):
+        wm_chain = watermark_chain(plan["watermark_text"], opts.get("ffmpeg_path") or "ffmpeg")
+        if wm_chain:
+            chains[-1] = chains[-1].replace("[v]", "[wm0]")
+            chains.append("[wm0]%s[v]" % wm_chain)
 
     fmt = "aformat=sample_fmts=fltp:sample_rates=44100:channel_layouts=stereo"
     if music_label:
@@ -1228,6 +1281,7 @@ def plan_one(item, order, ctx):
         "logo_width": ctx["logo_width"],
         "logo_margin": ctx["logo_margin"],
         "logo_opacity": ctx["logo_opacity"],
+        "watermark_text": ctx["trial_watermark"],
         "music_path": item.get("musicPath") or None,
         "music_volume": clamp(to_float(item.get("musicVolume"), 0.25), 0.0, 1.5),
         "title": item.get("title") or "Clip %d" % index,
@@ -1293,6 +1347,8 @@ def build_plans(config, out_dir, geometry, aspect, fps, ffmpeg_path, source):
                             * geometry[0]),
         "logo_margin": _even(geometry[0] * 0.045),
         "logo_opacity": clamp(to_float(config.get("logoOpacity"), 0.85), 0.1, 1.0),
+        # Burned into every frame when set (main process enables it for trial).
+        "trial_watermark": str(config.get("trialWatermark") or "").strip(),
         "geometry": geometry,
         "aspect": aspect,
         "fps": fps,
@@ -1378,6 +1434,8 @@ def render(config):
             "blur_filter": ctx["blur_filter"],
             "tighten": bool(plan["keep"]),
             "logo": bool(plan["logo_path"]),
+            "watermark": bool(plan["watermark_text"]),
+            "ffmpeg_path": ffmpeg_path,
         }
 
         try:

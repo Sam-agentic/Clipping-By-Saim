@@ -37,15 +37,16 @@ desktop app config. Follow the steps **in order**.
 2. Copy the entire contents of [`schema.sql`](schema.sql) and paste it in.
 3. Click **Run**.
 
-This creates three tables:
+This creates four tables:
 
 | Table | Purpose |
 |---|---|
-| `profiles` | One row per user: role (`owner`/`customer`), status, device limit, `updated_at` |
+| `profiles` | One row per user: role (`owner`/`customer`), status (`pending`/`active`/`revoked`), device limit, `updated_at` |
 | `access_requests` | Pending requests from the app's "Request Access" screen |
 | `licensed_devices` | Tracks which device hashes are allowed per user |
+| `free_trials` | One-trial-per-device claims (unique `device_hash`, `expires_at`) for the server-side 7-day trial |
 
-All three tables have **Row Level Security enabled** with no direct client
+All four tables have **Row Level Security enabled** with no direct client
 policies — all access goes through Edge Functions using the service role.
 
 `schema.sql` also installs a `touch_updated_at` trigger so `profiles.updated_at`
@@ -73,7 +74,10 @@ This does four things:
 
 1. Installs a **trigger** (`handle_new_user`) that automatically creates a
    `profiles` row whenever a new Auth user is created — so you never have to
-   insert profiles manually for invited customers.
+   insert profiles manually for invited customers. New profiles start with
+   `status = 'pending'`, so a self-registered user is **not** automatically
+   licensed: you must approve the account (set `status = 'active'`) before
+   their sign-in unlocks the app.
 2. Installs the **`touch_updated_at` trigger** on `profiles` (same as
    `schema.sql`, kept here so a fresh project can run only this file).
 3. Inserts/updates the owner profile for `saimabdullah310@gmail.com` with
@@ -95,12 +99,13 @@ This does four things:
 
 ## Step 5 — Deploy the Edge Functions
 
-The six functions live in [`functions/`](functions/):
+The seven functions live in [`functions/`](functions/):
 
 | Function | Purpose |
 |---|---|
 | `request-access` | Public — lets a customer submit their email for approval |
 | `verify-license` | Public — checks JWT + device hash against `profiles`/`licensed_devices` |
+| `trial-claim` | Public — one-trial-per-device server-side claim (7-day window, idempotent) |
 | `admin-approve` | Owner-only — invites a customer and creates their profile |
 | `admin-list-requests` | Owner-only — lists pending access requests |
 | `admin-revoke` | Owner-only — sets a customer's status to `active` or `revoked` |
@@ -125,6 +130,7 @@ supabase link --project-ref YOUR_PROJECT_REF
 ```bash
 supabase functions deploy request-access
 supabase functions deploy verify-license
+supabase functions deploy trial-claim
 supabase functions deploy admin-approve
 supabase functions deploy admin-list-requests
 supabase functions deploy admin-revoke
@@ -138,8 +144,8 @@ supabase functions deploy
 ```
 
 The [`config.toml`](config.toml) already sets `verify_jwt = false` for all
-six functions, because the functions validate the JWT themselves (or don't
-need one, in the case of `request-access`).
+seven functions, because the functions validate the JWT themselves (or don't
+need one, in the case of `request-access` and `trial-claim`).
 
 ---
 
@@ -229,6 +235,26 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=YOUR_SERVICE_ROLE_KEY
    - Device count is under `device_limit`
 4. On success the device is upserted into `licensed_devices` and the app
    unlocks.
+### 8d. Free trial (customer side)
+
+The app's **Free Trial** button claims a 7-day, one-trial-per-device window
+through the `trial-claim` Edge Function:
+
+1. The app sends `{ device_hash, email, app_version }` to `trial-claim`.
+2. A fresh claim inserts a row into `free_trials` and returns `expires_at`.
+3. A re-claim inside the window is **idempotent** and returns the *same*
+   expiry — so deleting the app's local files, moving the app, or changing the
+   system clock cannot restart the trial.
+4. A claim after the window is **denied** (`allowed: false`).
+5. While on trial, the app enforces locally: at most **3 rendered clips** per
+   device and a white `Clipping by Saim` watermark **burned into every frame**
+   at 35% opacity (bottom-right). Deleting local files resets the clip counter
+   but never the server-side window.
+
+> ⚠️ The trial only grants clip rendering. Sign-in, exports, and owner
+> features still require an approved `profiles` row with `status = 'active'`.
+
+---
 
 ---
 
@@ -302,6 +328,9 @@ on conflict (id) do update set role = 'owner';
 | `Your device limit has been reached.` | The customer has used all their devices. Increase `device_limit` or revoke old devices. |
 | `Please sign in again.` | The JWT expired. The app will prompt for a fresh sign-in. |
 | Functions return 404 | The functions aren't deployed, or the URL/anon key in `licensing.config.json` is wrong. |
+| `Your free trial has reached its clip limit.` | That device already claimed its 7-day trial and used the 3-clip budget (or the window expired). Approve the customer's email or have them request access. |
+| `The free trial for this device has already been used.` | `free_trials` has an expired row for this `device_hash`. One trial per device, ever — there is no reset from the app side. |
+| Account created but sign-in stays locked | New self-registered accounts start `pending`. Set `status = 'active'` in `profiles` (approve them), or have the customer re-request access. |
 | `Licensing has not been configured for this build.` | `licensing.config.json` is missing or `enforcement` isn't `"required"`. |
 
 ---
@@ -313,4 +342,4 @@ on conflict (id) do update set role = 'owner';
 - [ ] `SUPABASE_SERVICE_ROLE_KEY` is only set as an Edge Function secret.
 - [ ] `licensing.config.json` only contains the **anon** key.
 - [ ] `licensing.config.json` is in `.gitignore` (never commit it).
-- [ ] RLS is enabled on all three tables (already done in `schema.sql`).
+- [ ] RLS is enabled on all four tables (already done in `schema.sql`).

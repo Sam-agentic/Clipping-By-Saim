@@ -57,10 +57,25 @@
       <p class="eyebrow">CLIPPING BY SAIM · PROTECTED ACCESS</p>
       <h2 id="licenseTitle">Welcome back</h2>
       <p id="licenseMessage">Sign in with the email address approved by your administrator.</p>
-      <label>Email<input id="licenseEmail" type="email" autocomplete="email" placeholder="you@company.com" /></label>
-      <label>Password<input id="licensePassword" type="password" autocomplete="current-password" placeholder="Your password" /></label>
-      <button id="licenseSignInBtn" class="generate-btn">Secure sign in</button>
-      <button id="licenseRequestBtn" class="text-btn">Request access from the administrator</button>
+      <div class="license-tabs">
+        <button id="licenseTabSignIn" class="license-tab active">Sign in</button>
+        <button id="licenseTabRegister" class="license-tab">Create account</button>
+      </div>
+      <div id="licenseSignInPanel">
+        <label>Email<input id="licenseEmail" type="email" autocomplete="email" placeholder="you@company.com" /></label>
+        <label>Password<input id="licensePassword" type="password" autocomplete="current-password" placeholder="Your password" /></label>
+        <button id="licenseSignInBtn" class="generate-btn">Secure sign in</button>
+        <button id="licenseRequestBtn" class="text-btn">Request access from the administrator</button>
+      </div>
+      <div id="licenseRegisterPanel" class="hidden">
+        <label>Email<input id="licenseRegEmail" type="email" autocomplete="email" placeholder="you@company.com" /></label>
+        <label>Password<input id="licenseRegPassword" type="password" autocomplete="new-password" placeholder="Choose a password" /></label>
+        <label>Confirm password<input id="licenseRegConfirm" type="password" autocomplete="new-password" placeholder="Re-enter your password" /></label>
+        <button id="licenseRegisterBtn" class="generate-btn">Create account</button>
+        <button id="licenseRequestLinkRegister" class="text-btn">Request access from the administrator</button>
+      </div>
+      <hr class="license-divider" />
+      <button id="licenseTrialBtn" class="trial-btn">🎯 Start Free Trial (7 days)</button>
       <p class="license-note">Your license is verified securely and this device is registered to your approved account.</p>
     </div>
   </div>

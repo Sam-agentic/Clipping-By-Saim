@@ -3,7 +3,7 @@ create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   email text not null unique,
   role text not null default 'customer' check (role in ('owner', 'customer')),
-  status text not null default 'active' check (status in ('active', 'revoked')),
+  status text not null default 'pending' check (status in ('active', 'revoked', 'pending')),
   device_limit integer not null default 2 check (device_limit between 1 and 10),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -24,9 +24,22 @@ create table if not exists public.licensed_devices (
   created_at timestamptz not null default now(),
   unique(user_id, device_hash)
 );
+-- One free trial per device, tracked server-side so deleting local files or
+-- changing the system clock cannot reset it.  trial-claim edge function is the
+-- only writer; no direct client policies are granted (RLS is on below).
+create table if not exists public.free_trials (
+  id bigint generated always as identity primary key,
+  device_hash text not null unique,
+  email text,
+  app_version text,
+  claimed_at timestamptz not null default now(),
+  expires_at timestamptz not null,
+  created_at timestamptz not null default now()
+);
 alter table public.profiles enable row level security;
 alter table public.access_requests enable row level security;
 alter table public.licensed_devices enable row level security;
+alter table public.free_trials enable row level security;
 -- All browser/app access is through Edge Functions using the service role.
 -- No direct client table policies are intentionally granted.
 

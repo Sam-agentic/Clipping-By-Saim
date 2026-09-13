@@ -261,23 +261,63 @@ function showLicenseGate(status) {
 function unlockLicense(status) {
   toggleHidden('licenseGate', true);
   const user = el('licenseUser');
-  if (user && status && status.email) {
-    user.textContent = status.email;
-    user.classList.remove('hidden');
-    toggleHidden('licenseSignOutBtn', false);
-    // This only controls visibility. The server independently checks the
-    // profile role, so changing the UI can never grant owner permissions.
-    if (status.email.toLowerCase() === 'saimabdullah310@gmail.com') {
-      toggleHidden('ownerAccessBtn', false);
+  if (user) {
+    if (status && status.trial) {
+      // Trial mode: show a clear "Free Trial" label instead of an email
+      user.textContent = '🎯 Free Trial';
+      user.classList.remove('hidden');
+      toggleHidden('licenseSignOutBtn', false);
+    } else if (status && status.email) {
+      user.textContent = status.email;
+      user.classList.remove('hidden');
+      toggleHidden('licenseSignOutBtn', false);
+      // This only controls visibility. The server independently checks the
+      // profile role, so changing the UI can never grant owner permissions.
+      if (status.email.toLowerCase() === 'saimabdullah310@gmail.com') {
+        toggleHidden('ownerAccessBtn', false);
+        // Auto-load pending requests count so the owner sees it immediately
+        refreshOwnerRequestCount();
+      }
     }
   }
 }
 
 async function checkLicense() {
   if (typeof bridge.licenseStatus !== 'function') return;
-  const status = await bridge.licenseStatus();
-  if (status && status.allowed) unlockLicense(status);
-  else if (status && status.required) showLicenseGate(status);
+  const status = await bridge.licenseStatus().catch(() => null);
+  if (status && status.allowed) {
+    unlockLicense(status);
+    // Use the verdict we already hold instead of re-verifying. The old flow
+    // fired a second concurrent server call at start-up; with an expired
+    // saved session both calls raced to refresh the same single-use Supabase
+    // token, the loser fell back to "trial mode", and the trial banner ended
+    // up painted over a real approved license.
+    await checkTrialStatus(status);
+  } else if (status && status.required) {
+    // First-time users have no saved session → default to "Create account"
+    // (email + password + confirm password). Returning users with an invalid
+    // session default to the regular sign-in form.
+    let hasSavedSession = false;
+    try {
+      const sessionInfo = await bridge.licenseHasSession();
+      hasSavedSession = Boolean(sessionInfo && sessionInfo.hasSession);
+    } catch (_) { /* best-effort */ }
+    if (!hasSavedSession && el('licenseTabRegister')) {
+      el('licenseTabRegister').click();
+      // Show the overlay too: without this a first-time user never saw a
+      // login/register screen and the app opened straight into the main UI.
+      showLicenseGate(status);
+      setLicenseMessage(status.reason || 'Create your account or request access to start.');
+    } else {
+      showLicenseGate(status);
+    }
+    await checkTrialStatus(status);
+  } else {
+    // No usable verdict (IPC error / malformed reply): fail closed rather
+    // than open the main UI with no access control at all.
+    showLicenseGate(status);
+    await checkTrialStatus(status);
+  }
 }
 
 on('licenseSignInBtn', 'click', async () => {
@@ -294,14 +334,19 @@ on('licenseSignInBtn', 'click', async () => {
     // signed out, so it would keep showing until the app restarts. Re-check it
     // now that the license is verified so the "Trial mode — 3 clips max" message
     // disappears as soon as a valid owner/customer signs in.
-    await checkTrialStatus();
+    await checkTrialStatus(result);
     return;
   }
   setLicenseMessage((result && (result.reason || result.error)) || 'Sign-in was not approved.');
 });
 
-on('licenseRequestBtn', 'click', async () => {
-  const email = (el('licenseEmail').value || '').trim();
+on('licenseRequestBtn', 'click', requestAccessHandler);
+on('licenseRequestLinkRegister', 'click', requestAccessHandler);
+
+async function requestAccessHandler() {
+  const signInEmail = (el('licenseEmail').value || '').trim();
+  const regEmail = (el('licenseRegEmail').value || '').trim();
+  const email = signInEmail || regEmail;
   if (!email) return setLicenseMessage('Enter your email first, then request access.');
   el('licenseRequestBtn').disabled = true;
   const result = await callMain('licenseRequestAccess', email);
@@ -309,6 +354,71 @@ on('licenseRequestBtn', 'click', async () => {
   setLicenseMessage(result && result.success
     ? 'Request sent. Your administrator will approve the email, then you will receive an English invitation email.'
     : ((result && result.error) || 'Could not send the request.'));
+}
+
+/* --------------------------------------------------- license gate tabs  */
+
+on('licenseTabSignIn', 'click', () => {
+  toggleHidden('licenseSignInPanel', false);
+  toggleHidden('licenseRegisterPanel', true);
+  el('licenseTabSignIn').classList.add('active');
+  el('licenseTabRegister').classList.remove('active');
+});
+
+on('licenseTabRegister', 'click', () => {
+  toggleHidden('licenseSignInPanel', true);
+  toggleHidden('licenseRegisterPanel', false);
+  el('licenseTabSignIn').classList.remove('active');
+  el('licenseTabRegister').classList.add('active');
+});
+
+on('licenseRegisterBtn', 'click', async () => {
+  const email = (el('licenseRegEmail').value || '').trim();
+  const password = el('licenseRegPassword').value || '';
+  const confirm = el('licenseRegConfirm').value || '';
+  if (!email || !password) return setLicenseMessage('Enter your email and password.');
+  if (password !== confirm) return setLicenseMessage('Passwords do not match.');
+  el('licenseRegisterBtn').disabled = true;
+  setLicenseMessage('Creating your account…');
+  const result = await callMain('licenseRegister', { email, password, confirmPassword: confirm });
+  el('licenseRegisterBtn').disabled = false;
+  if (result && result.allowed) {
+    unlockLicense(result);
+    await checkTrialStatus(result);
+    return;
+  }
+  if (result && result.needsConfirmation) {
+    setLicenseMessage(result.message || 'Account created. Confirm your email first, then sign in.');
+    // Switch back to sign-in tab
+    el('licenseTabSignIn').click();
+    return;
+  }
+  if (result && result.requested) {
+    // Sign-up is closed: the owner invites you instead of you confirming.
+    setLicenseMessage(result.error || 'The owner will invite this email once your access request is approved.');
+    return;
+  }
+  setLicenseMessage((result && result.error) || 'Registration failed.');
+});
+
+/* --------------------------------------------------- free trial  */
+
+on('licenseTrialBtn', 'click', async () => {
+  const email = (el('licenseEmail').value || '').trim() || 'trial-user';
+  el('licenseTrialBtn').disabled = true;
+  setLicenseMessage('Starting your free trial…');
+  const result = await callMain('licenseStartTrial', { email });
+  el('licenseTrialBtn').disabled = false;
+  if (result && result.success) {
+    toggleHidden('licenseGate', true);
+    const note = result.serverVerified
+      ? ' tracked server-side — deleting files will not reset it'
+      : (result.offline ? ' offline — the watermark and 3-clip limit still apply' : '');
+    setStatus(`Free trial active — 7 days, 3 clips total and every clip watermark-burned${note}. Enjoy!`);
+    await checkTrialStatus();
+    return;
+  }
+  setLicenseMessage((result && result.error) || 'Could not start the trial.');
 });
 
 on('licenseSignOutBtn', 'click', async () => {
@@ -322,6 +432,8 @@ on('licenseSignOutBtn', 'click', async () => {
 on('ownerAccessBtn', 'click', () => {
   toggleHidden('ownerGate', false);
   setText('ownerMessage', 'Approve an email to send its English invitation email.');
+  refreshOwnerRequests();
+  refreshOwnerCustomers();
 });
 
 on('ownerCloseBtn', 'click', () => toggleHidden('ownerGate', true));
@@ -340,6 +452,24 @@ on('ownerApproveBtn', 'click', async () => {
 });
 
 /* --------------------------------------------------- owner admin dashboard  */
+
+/** Show pending request count as a badge next to the "Manage access" button. */
+async function refreshOwnerRequestCount() {
+  const result = await callMain('licenseListRequests');
+  const btn = el('ownerAccessBtn');
+  if (!btn) return;
+  // Remove any existing badge
+  const existing = btn.querySelector('.owner-badge');
+  if (existing) existing.remove();
+  if (!result || !result.success) return;
+  const pending = (result.requests || []).filter((r) => !r.approved_at);
+  if (pending.length > 0) {
+    const badge = document.createElement('span');
+    badge.className = 'owner-badge';
+    badge.textContent = String(pending.length);
+    btn.appendChild(badge);
+  }
+}
 
 async function refreshOwnerRequests() {
   const result = await callMain('licenseListRequests');
@@ -377,6 +507,7 @@ async function refreshOwnerRequests() {
         ? `Approved ${request.email}. Invitation email sent.`
         : ((result && result.error) || 'Approval failed.'));
       refreshOwnerRequests();
+      refreshOwnerRequestCount();
     });
     row.append(info, approve);
     box.appendChild(row);
@@ -431,6 +562,7 @@ async function refreshOwnerCustomers() {
 on('ownerRefreshBtn', 'click', () => {
   refreshOwnerRequests();
   refreshOwnerCustomers();
+  refreshOwnerRequestCount();
   setText('ownerMessage', 'Dashboard refreshed.');
 });
 
@@ -1459,12 +1591,15 @@ on('saimPlatformPreset', 'change', async () => {
 });
 
 // 6. Trial/demo mode — watermark + clip limit
-async function checkTrialStatus() {
-  const result = await bridge.enhanceTrialStatus();
+async function checkTrialStatus(license) {
+  // The caller (checkLicense, sign-in, register) already has a license
+  // verdict; hand it over so we do not fire a second server verification
+  // that can disagree with the one that just unlocked (or gated) the app.
+  const result = await bridge.enhanceTrialStatus(license);
   if (!result || !result.success) return;
   if (result.trial) {
     const config = result.config || {};
-    setStatus(`Trial mode — ${config.maxClips} clips max, watermark will be added. Get a license to remove it.`);
+    setStatus(`Trial mode — ${config.maxClips} clips total, watermark burned into every clip. Get a license to remove it.`);
   } else {
     // A verified license means the user is no longer on trial. Clear any
     // lingering trial banner left over from start-up / a previous sign-in,
@@ -1569,7 +1704,6 @@ try {
   showSystemInfo();
   checkLeftovers();
   checkLicense();
-  checkTrialStatus();
   setupUpdateListener();
 } catch (err) {
   const detail = (err && err.message) ? err.message : String(err);

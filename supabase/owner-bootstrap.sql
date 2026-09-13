@@ -15,8 +15,10 @@ language plpgsql
 security definer set search_path = public
 as $$
 begin
+  -- New accounts start as 'pending' so a self-registered user stays locked
+  -- until the owner approves them (admin-approve flips status to 'active').
   insert into public.profiles (id, email, role, status, device_limit)
-  values (new.id, new.email, 'customer', 'active', 2)
+  values (new.id, new.email, 'customer', 'pending', 2)
   on conflict (id) do nothing;
   return new;
 end;

@@ -426,9 +426,27 @@ const TRIAL_CONFIG = {
   trialDays: 7
 };
 
+const WATERMARK_FONTS = [
+  'C:\\Windows\\Fonts\\arialbd.ttf',
+  'C:\\Windows\\Fonts\\arial.ttf',
+  '/System/Library/Fonts/Supplemental/Arial Bold.ttf',
+  '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+  '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf'
+];
+
+function trialWatermarkFont() {
+  const fs = require('fs');
+  for (const candidate of WATERMARK_FONTS) {
+    try { if (fs.existsSync(candidate)) return candidate; } catch (_) { /* keep looking */ }
+  }
+  return '';
+}
+
 function isTrialMode(licenseStatus) {
-  // If licensing is not configured, or the user is not licensed → trial mode
-  return !licenseStatus || !licenseStatus.allowed;
+  // A user is on trial when: licensing is not configured, their license is
+  // not allowed, OR the verify() call explicitly flagged an active trial
+  // (trial mode now returns allowed:true so the app unlocks but is limited).
+  return !licenseStatus || !licenseStatus.allowed || licenseStatus.trial === true;
 }
 
 function getTrialConfig() {
@@ -437,6 +455,9 @@ function getTrialConfig() {
 
 function applyWatermark(ffmpegArgs, position = 'bottom-right') {
   const { watermarkText, watermarkOpacity, watermarkScale } = TRIAL_CONFIG;
+  // drawtext can fail without a usable font on Windows ffmpeg builds, so
+  // pick a known font file instead of relying on fontconfig.
+  const font = trialWatermarkFont();
   const positions = {
     'bottom-right': '(w-text_w-20):(h-text_h-20)',
     'bottom-left': '20:(h-text_h-20)',
@@ -445,7 +466,12 @@ function applyWatermark(ffmpegArgs, position = 'bottom-right') {
     center: '(w-text_w)/2:(h-text_h)/2'
   };
   const pos = positions[position] || positions['bottom-right'];
-  const drawtext = `drawtext=text='${watermarkText}':fontsize=h*${watermarkScale}:fontcolor=white@${watermarkOpacity}:x=${pos}:y=${pos}`;
+  const escape = (value) => String(value)
+    .replace(/\\/g, '\\\\').replace(/'/g, "\\'")
+    .replace(/:/g, '\\:').replace(/,/g, '\\,');
+  const drawtext = `drawtext=text='${escape(watermarkText)}':fontsize=h*${watermarkScale}:fontcolor=white@${watermarkOpacity}`
+    + (font ? `:fontfile='${escape(font)}'` : '')
+    + `:x=${pos}:y=${pos}`;
   ffmpegArgs.push('-vf', drawtext);
   return ffmpegArgs;
 }

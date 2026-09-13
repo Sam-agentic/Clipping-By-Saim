@@ -20,3 +20,5 @@ verify_jwt = false
 
 [functions.admin-list-customers]
 verify_jwt = false
+[functions.trial-claim]
+verify_jwt = false

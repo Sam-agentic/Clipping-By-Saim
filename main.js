@@ -524,6 +524,7 @@ ipcMain.handle('get-system-info', () => {
 
 /* Licensing: the renderer never sees an encrypted session or device identity. */
 ipcMain.handle('license-status', () => licenseService.verify(DATA_DIR));
+ipcMain.handle('license-has-session', () => ({ success: true, hasSession: licenseService.hasSession(DATA_DIR) }));
 ipcMain.handle('license-request-access', async (_event, email) => {
   try { return await licenseService.requestAccess(email, app.getVersion()); }
   catch (error) { return { success: false, error: error.message }; }
@@ -532,7 +533,20 @@ ipcMain.handle('license-sign-in', async (_event, payload = {}) => {
   try { return await licenseService.signIn(DATA_DIR, payload.email, payload.password); }
   catch (error) { return { success: false, error: error.message }; }
 });
+ipcMain.handle('license-register', async (_event, payload = {}) => {
+  try {
+    return await licenseService.register(DATA_DIR, payload.email, payload.password, payload.confirmPassword, app.getVersion());
+  } catch (error) { return { success: false, error: error.message }; }
+});
 ipcMain.handle('license-sign-out', () => { licenseService.clearSession(DATA_DIR); return { success: true }; });
+ipcMain.handle('license-start-trial', async (_event, payload = {}) => {
+  try { return await licenseService.startTrial(DATA_DIR, payload.email, app.getVersion()); }
+  catch (error) { return { success: false, error: error.message }; }
+});
+ipcMain.handle('license-trial-status', async () => {
+  try { return { ...licenseService.getTrialStatus(DATA_DIR), success: true }; }
+  catch (error) { return { success: false, error: error.message }; }
+});
 ipcMain.handle('license-approve-customer', async (_event, payload = {}) => {
   try { return await licenseService.approveCustomer(DATA_DIR, payload.email, payload.deviceLimit); }
   catch (error) { return { success: false, error: error.message }; }
@@ -890,11 +904,30 @@ ipcMain.handle('clip-analyze', async (_event, payload = {}) => {
 });
 
 ipcMain.handle('clip-render', async (_event, payload = {}) => {
-  try { await requireLicense(); } catch (error) { return { success: false, error: error.message, code: error.code }; }
+  let license;
+  try { license = await requireLicense(); } catch (error) { return { success: false, error: error.message, code: error.code }; }
   if (activeJob) return { success: false, error: 'Another job is already running.' };
 
   const projectDir = payload.projectDir || (clipProject && clipProject.dir);
   if (!projectDir) return { success: false, error: 'Analyse a link first.' };
+
+  // Trial enforcement happens here in the main process, not the renderer.
+  // Licensed users: 0 (unlimited, no watermark).  Trial users get the
+  // remaining slice of their persisted 3-clip total plus a burned-in
+  // watermark, and the renderer is told the clip count afterwards.
+  const trialConfig = enhancements.getTrialConfig();
+  const onTrial = license.trial === true;
+  let maxClips = 0;
+  let trialWatermark = '';
+  if (onTrial) {
+    const used = licenseService.trialRenderCount(DATA_DIR);
+    const remaining = Math.max(0, (Number(trialConfig.maxClips) || 3) - used);
+    if (remaining <= 0) {
+      return { success: false, error: 'Your free trial has reached its clip limit. Request access from the owner to keep going.' };
+    }
+    maxClips = remaining;
+    trialWatermark = String(trialConfig.watermarkText || 'Clipping by Saim').trim();
+  }
 
   const token = new JobToken();
   activeJob = { token, projectId: 'clip-render' };
@@ -931,9 +964,15 @@ ipcMain.handle('clip-render', async (_event, payload = {}) => {
       tighten: payload.tighten === true,
       cutFillers: payload.cutFillers !== false,
       writeMeta: payload.writeMeta === true,
+      // Trial gate: 0 = unlimited; >0 = clips left in the trial window.
+      maxClips,
+      trialWatermark,
       onProgress: sendProgress,
       token
     });
+    if (onTrial && Array.isArray(result.clips) && result.clips.length) {
+      licenseService.recordTrialRenders(DATA_DIR, result.clips.length);
+    }
     return { success: true, ...result };
   } catch (err) {
     return clipFailure(err);
@@ -1246,14 +1285,20 @@ ipcMain.handle('enhance-platform-preset', (_event, key) => ({
 }));
 
 // 6. Trial/demo mode — watermark + clip limit for unlicensed users
-ipcMain.handle('enhance-trial-status', async () => {
-  const license = await licenseService.verify(DATA_DIR);
-  const trial = enhancements.isTrialMode(license);
+ipcMain.handle('enhance-trial-status', async (_event, license) => {
+  // The renderer hands back the verdict it already received from
+  // license-status / sign-in / register so the banner always matches the
+  // same answer that unlocked (or gated) the app. Only fall back to a fresh
+  // verification when no verdict was supplied (e.g. after starting a trial).
+  const status = (license && (typeof license.allowed === 'boolean' || license.trial !== undefined))
+    ? license
+    : await licenseService.verify(DATA_DIR);
+  const trial = enhancements.isTrialMode(status);
   return {
     success: true,
     trial,
     config: enhancements.getTrialConfig(),
-    license
+    license: status
   };
 });
 

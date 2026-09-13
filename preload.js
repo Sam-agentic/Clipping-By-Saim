@@ -70,13 +70,17 @@ contextBridge.exposeInMainWorld('api', {
   clearCache: () => ipcRenderer.invoke('clear-cache'),
   // licensing (the encrypted session and device hash remain in the main process)
   licenseStatus: () => ipcRenderer.invoke('license-status'),
+  licenseHasSession: () => ipcRenderer.invoke('license-has-session'),
   licenseRequestAccess: (email) => ipcRenderer.invoke('license-request-access', email),
   licenseSignIn: (payload) => ipcRenderer.invoke('license-sign-in', payload),
+  licenseRegister: (payload) => ipcRenderer.invoke('license-register', payload),
   licenseApproveCustomer: (payload) => ipcRenderer.invoke('license-approve-customer', payload),
   licenseListRequests: () => ipcRenderer.invoke('license-list-requests'),
   licenseRevokeCustomer: (payload) => ipcRenderer.invoke('license-revoke-customer', payload),
   licenseListCustomers: () => ipcRenderer.invoke('license-list-customers'),
   licenseSignOut: () => ipcRenderer.invoke('license-sign-out'),
+  licenseStartTrial: (payload) => ipcRenderer.invoke('license-start-trial', payload),
+  licenseTrialStatus: () => ipcRenderer.invoke('license-trial-status'),
 
   // enhancements (v1.2) — growth features
   enhanceGenerateHooks: (payload) => ipcRenderer.invoke('enhance-generate-hooks', payload),
@@ -91,7 +95,7 @@ contextBridge.exposeInMainWorld('api', {
   enhanceTrackEvent: (payload) => ipcRenderer.invoke('enhance-track-event', payload),
   enhancePlatforms: () => ipcRenderer.invoke('enhance-platforms'),
   enhancePlatformPreset: (key) => ipcRenderer.invoke('enhance-platform-preset', key),
-  enhanceTrialStatus: () => ipcRenderer.invoke('enhance-trial-status'),
+  enhanceTrialStatus: (license) => ipcRenderer.invoke('enhance-trial-status', license),
   enhanceTrackClipRender: (payload) => ipcRenderer.invoke('enhance-track-clip-render', payload),
   enhanceTrackExport: (payload) => ipcRenderer.invoke('enhance-track-export', payload)
 });

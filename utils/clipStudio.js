@@ -348,6 +348,10 @@ async function renderClips(options = {}) {
     tighten = false,
     cutFillers = true,
     writeMeta = false,
+    // Trial gate: maxClips > 0 caps this batch (0 = unlimited), and
+    // trialWatermark (non-empty) is burned into every frame by the renderer.
+    maxClips = 0,
+    trialWatermark = '',
     ffmpegPath = resolveFfmpeg(),
     onProgress = () => {},
     token
@@ -364,6 +368,11 @@ async function renderClips(options = {}) {
   const transcript = readJson(path.join(dir, 'transcript.json'), { words: [], segments: [] });
   const wanted = clips.filter((clip) => clip && clip.enabled !== false);
   if (!wanted.length) throw new Error('Select at least one clip.');
+  // Defence-in-depth: even if the renderer were tampered with, the main-process
+  // cap is re-checked here right before the render config is written.
+  if (maxClips > 0 && wanted.length > maxClips) {
+    throw new Error(`Free trial — only ${maxClips} clip${maxClips === 1 ? '' : 's'} left. Select at most ${maxClips} and try again.`);
+  }
 
   const outDir = path.join(dir, 'clips');
   fs.mkdirSync(outDir, { recursive: true });
@@ -415,6 +424,7 @@ async function renderClips(options = {}) {
     tighten: Boolean(tighten),
     cutFillers: Boolean(cutFillers),
     writeMeta: Boolean(writeMeta),
+    trialWatermark,
     clips: payloadClips
   });
 
